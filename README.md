@@ -15,6 +15,12 @@ View your app in AI Studio: https://ai.studio/apps/drive/15c3Pysqrd701fDnzbfCEWn
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+2. Copy `.env.example` to `.env` (or create a new `.env` file) and set the following values:
+
+   ```bash
+   VITE_GEMINI_API_KEY=<your_google_gemini_api_key>
+   VITE_FREEPIK_API_KEY=<your_freepik_api_key>
+   ```
+
 3. Run the app:
    `npm run dev`

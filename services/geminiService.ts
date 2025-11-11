@@ -21,10 +21,16 @@ const extractBase64Data = (dataUrl?: string) => {
   return base64;
 };
 
-const ensureFreepikKey = (apiKey: string) => {
+const getFreepikApiKey = () => {
+  const apiKey =
+    process.env.FREEPIK_API_KEY ||
+    import.meta.env.VITE_FREEPIK_API_KEY;
+
   if (!apiKey) {
     throw new Error("Freepik API key is required.");
   }
+
+  return apiKey;
 };
 
 const freepikHeaders = (apiKey: string) => ({
@@ -32,7 +38,18 @@ const freepikHeaders = (apiKey: string) => ({
   "x-freepik-api-key": apiKey,
 });
 
-const getAiClient = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
+const getAiClient = () => {
+  const apiKey =
+    process.env.GEMINI_API_KEY ||
+    process.env.API_KEY ||
+    import.meta.env.VITE_GEMINI_API_KEY;
+
+  if (!apiKey) {
+    throw new Error("Gemini API key is required.");
+  }
+
+  return new GoogleGenAI({ apiKey });
+};
 
 interface SceneImageConfig {
   prompt: string;
@@ -68,13 +85,12 @@ const extractImageFromPayload = (payload: any): string | null => {
 };
 
 export const generateUgcImages = async (
-  apiKey: string,
   sceneStructure: SceneStructure,
   productName: string,
   additionalBrief: string,
   imageParts: { product: string; model?: string }
 ): Promise<string[]> => {
-  ensureFreepikKey(apiKey);
+  const apiKey = getFreepikApiKey();
   const sceneConfigs = getSceneImageConfigs(
     sceneStructure,
     productName,
@@ -146,14 +162,13 @@ export const generateUgcImages = async (
 };
 
 export const regenerateSingleImage = async (
-  apiKey: string,
   sceneId: number,
   sceneStructure: SceneStructure,
   productName: string,
   additionalBrief: string,
   imageParts: { product: string; model?: string }
 ): Promise<string> => {
-  ensureFreepikKey(apiKey);
+  const apiKey = getFreepikApiKey();
   const sceneConfigs = getSceneImageConfigs(
     sceneStructure,
     productName,
@@ -283,13 +298,12 @@ export const generateVoiceOver = async (fullScript: string): Promise<string> => 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export const generateVideoFromImage = async (
-  apiKey: string,
   imageBase64: string,
   animationPrompt: string,
   script: string,
   withBackgroundMusic: boolean
 ): Promise<string> => {
-  ensureFreepikKey(apiKey);
+  const apiKey = getFreepikApiKey();
 
   const imageData = extractBase64Data(imageBase64);
   if (!imageData) {

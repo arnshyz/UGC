@@ -27,21 +27,7 @@ const App: React.FC = () => {
   const [loadingMessage, setLoadingMessage] = useState('');
   const [error, setError] = useState<string | null>(null);
 
-  const [apiKeySelected, setApiKeySelected] = useState(false);
-  const [freepikApiKey, setFreepikApiKey] = useState<string>(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('freepik_api_key') || '';
-    }
-    return '';
-  });
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(window.innerWidth > 768);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('freepik_api_key', freepikApiKey);
-    }
-  }, [freepikApiKey]);
-
 
   // Sync scenes state with selected structure
   useEffect(() => {
@@ -58,25 +44,6 @@ const App: React.FC = () => {
     setScenes(newScenes);
   }, [sceneStructureId]);
 
-
-  useEffect(() => {
-    const checkApiKey = async () => {
-      if (window.aistudio) {
-        const hasKey = await window.aistudio.hasSelectedApiKey();
-        setApiKeySelected(hasKey);
-      }
-    };
-    checkApiKey();
-  }, []);
-
-  const handleSelectKey = async () => {
-    if (window.aistudio) {
-      await window.aistudio.openSelectKey();
-      setApiKeySelected(true); // Assume success after open
-      setError(null); // Clear previous errors after selecting a new key
-    }
-  };
-  
   const handleVideoPromptChange = (sceneId: number, prompt: string) => {
     setScenes(prev => prev.map(s => s.id === sceneId ? { ...s, videoPrompt: prompt } : s));
   };
@@ -119,11 +86,6 @@ const App: React.FC = () => {
       return;
     }
 
-    if (!freepikApiKey) {
-      setError('Mohon masukkan Freepik API Key Anda.');
-      return;
-    }
-
     resetState();
     setIsLoading(true);
 
@@ -140,7 +102,6 @@ const App: React.FC = () => {
 
       setLoadingMessage('Membuat gambar...');
       const imageGenerationPromise = geminiService.generateUgcImages(
-        freepikApiKey,
         selectedStructure,
         productName,
         additionalBrief,
@@ -221,7 +182,6 @@ const App: React.FC = () => {
         const imageParts = { product: productPart, model: modelPart };
 
         const newImage = await geminiService.regenerateSingleImage(
-          freepikApiKey,
           sceneId,
           selectedStructure,
           productName,
@@ -243,7 +203,6 @@ const App: React.FC = () => {
       
       try {
           const videoUrl = await geminiService.generateVideoFromImage(
-            freepikApiKey,
             scene.image,
             customPrompt,
             scene.script,
@@ -256,8 +215,8 @@ const App: React.FC = () => {
           let displayError = 'Gagal membuat video.';
 
           if (errorMessage.includes('Freepik API key')) {
-            setError('Freepik API Key tidak valid atau belum diisi.');
-            displayError = 'API Key Freepik bermasalah.';
+            setError('Konfigurasi API Freepik bermasalah.');
+            displayError = 'Konfigurasi API Freepik bermasalah.';
           }
 
           setScenes(prev => prev.map(s => s.id === scene.id ? { ...s, status: GenerationStatus.ERROR, errorMessage: displayError } : s));
@@ -352,7 +311,6 @@ const App: React.FC = () => {
             sceneStructureId={sceneStructureId}
             generateVoiceOver={generateVoiceOver}
             addBackgroundMusic={addBackgroundMusic}
-            freepikApiKey={freepikApiKey}
             onProductImageUpload={setProductImage}
             onModelImageUpload={setModelImage}
             onProductNameChange={setProductName}
@@ -360,10 +318,7 @@ const App: React.FC = () => {
             onSceneStructureChange={setSceneStructureId}
             onGenerateVoiceOverChange={setGenerateVoiceOver}
             onAddBackgroundMusicChange={setAddBackgroundMusic}
-            onFreepikApiKeyChange={setFreepikApiKey}
             onGenerate={handleGenerateInitialAssets}
-            apiKeySelected={apiKeySelected}
-            onSelectKey={handleSelectKey}
             isLoading={isLoading || isAnySceneProcessing}
             error={error}
         />
