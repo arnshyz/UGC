@@ -28,7 +28,19 @@ const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   const [apiKeySelected, setApiKeySelected] = useState(false);
+  const [freepikApiKey, setFreepikApiKey] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('freepik_api_key') || '';
+    }
+    return '';
+  });
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(window.innerWidth > 768);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('freepik_api_key', freepikApiKey);
+    }
+  }, [freepikApiKey]);
 
 
   // Sync scenes state with selected structure
@@ -106,7 +118,12 @@ const App: React.FC = () => {
       setError('Mohon unggah gambar produk dan masukkan nama produk.');
       return;
     }
-    
+
+    if (!freepikApiKey) {
+      setError('Mohon masukkan Freepik API Key Anda.');
+      return;
+    }
+
     resetState();
     setIsLoading(true);
 
@@ -114,7 +131,7 @@ const App: React.FC = () => {
       setLoadingMessage('Menyiapkan aset...');
       const productPart = await geminiService.fileToGenerativePart(productImage);
       const modelPart = modelImage ? await geminiService.fileToGenerativePart(modelImage) : undefined;
-      
+
       const imageParts = { product: productPart, model: modelPart };
 
       setLoadingMessage('Membuat naskah...');
@@ -122,7 +139,13 @@ const App: React.FC = () => {
       const fullScript = Object.values(scriptData).join(' ');
 
       setLoadingMessage('Membuat gambar...');
-      const imageGenerationPromise = geminiService.generateUgcImages(selectedStructure, productName, additionalBrief, imageParts);
+      const imageGenerationPromise = geminiService.generateUgcImages(
+        freepikApiKey,
+        selectedStructure,
+        productName,
+        additionalBrief,
+        imageParts
+      );
 
       const voiceOverPromise = generateVoiceOver
           ? geminiService.generateVoiceOver(fullScript).catch(e => {
@@ -197,7 +220,14 @@ const App: React.FC = () => {
         const modelPart = modelImage ? await geminiService.fileToGenerativePart(modelImage) : undefined;
         const imageParts = { product: productPart, model: modelPart };
 
-        const newImage = await geminiService.regenerateSingleImage(sceneId, selectedStructure, productName, additionalBrief, imageParts);
+        const newImage = await geminiService.regenerateSingleImage(
+          freepikApiKey,
+          sceneId,
+          selectedStructure,
+          productName,
+          additionalBrief,
+          imageParts
+        );
         setScenes(prev => prev.map(s => s.id === sceneId ? { ...s, image: newImage, status: GenerationStatus.IMAGE_READY } : s));
     } catch (e: any) {
         console.error(`Error regenerating image for scene ${sceneId}:`, e);
@@ -212,21 +242,22 @@ const App: React.FC = () => {
       setScenes(prev => prev.map(s => s.id === sceneId ? { ...s, status: GenerationStatus.GENERATING_VIDEO, errorMessage: '' } : s));
       
       try {
-          const videoUrl = await geminiService.generateVideoFromImage(scene.image, customPrompt, scene.script, addBackgroundMusic);
+          const videoUrl = await geminiService.generateVideoFromImage(
+            freepikApiKey,
+            scene.image,
+            customPrompt,
+            scene.script,
+            addBackgroundMusic
+          );
           setScenes(prev => prev.map(s => s.id === scene.id ? { ...s, videoUrl, status: GenerationStatus.COMPLETED } : s));
       } catch (videoError: any) {
           console.error(`Error generating video for scene ${scene.id}:`, videoError);
           const errorMessage = videoError.message || 'Unknown error';
           let displayError = 'Gagal membuat video.';
 
-          if (errorMessage.includes("Requested entity was not found.")) {
-             setError("API Key tidak ditemukan. Mohon pilih ulang API key Anda.");
-             setApiKeySelected(false);
-             displayError = "API Key tidak ditemukan.";
-          } else if (errorMessage.includes("RESOURCE_EXHAUSTED") || errorMessage.includes("429")) {
-              displayError = "Batas kuota untuk key ini habis.";
-              setError("Kuota API Key habis. Mohon pilih API key yang lain untuk melanjutkan.");
-              setApiKeySelected(false); // Reset to prompt for a new key
+          if (errorMessage.includes('Freepik API key')) {
+            setError('Freepik API Key tidak valid atau belum diisi.');
+            displayError = 'API Key Freepik bermasalah.';
           }
 
           setScenes(prev => prev.map(s => s.id === scene.id ? { ...s, status: GenerationStatus.ERROR, errorMessage: displayError } : s));
@@ -313,7 +344,7 @@ const App: React.FC = () => {
         </main>
 
         {/* Settings Panel */}
-        <SettingsPanel 
+        <SettingsPanel
             productImage={productImage}
             modelImage={modelImage}
             productName={productName}
@@ -321,6 +352,7 @@ const App: React.FC = () => {
             sceneStructureId={sceneStructureId}
             generateVoiceOver={generateVoiceOver}
             addBackgroundMusic={addBackgroundMusic}
+            freepikApiKey={freepikApiKey}
             onProductImageUpload={setProductImage}
             onModelImageUpload={setModelImage}
             onProductNameChange={setProductName}
@@ -328,6 +360,7 @@ const App: React.FC = () => {
             onSceneStructureChange={setSceneStructureId}
             onGenerateVoiceOverChange={setGenerateVoiceOver}
             onAddBackgroundMusicChange={setAddBackgroundMusic}
+            onFreepikApiKeyChange={setFreepikApiKey}
             onGenerate={handleGenerateInitialAssets}
             apiKeySelected={apiKeySelected}
             onSelectKey={handleSelectKey}

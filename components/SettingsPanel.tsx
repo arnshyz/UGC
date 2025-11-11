@@ -12,6 +12,7 @@ interface SettingsPanelProps {
     sceneStructureId: string;
     generateVoiceOver: boolean;
     addBackgroundMusic: boolean;
+    freepikApiKey: string;
     onProductImageUpload: (file: File) => void;
     onModelImageUpload: (file: File) => void;
     onProductNameChange: (name: string) => void;
@@ -19,6 +20,7 @@ interface SettingsPanelProps {
     onSceneStructureChange: (id: string) => void;
     onGenerateVoiceOverChange: (enabled: boolean) => void;
     onAddBackgroundMusicChange: (enabled: boolean) => void;
+    onFreepikApiKeyChange: (key: string) => void;
     onGenerate: () => void;
     apiKeySelected: boolean;
     onSelectKey: () => void;
@@ -33,11 +35,12 @@ const SettingsPanel: React.FC<SettingsPanelProps> = (props) => {
         sceneStructureId, onSceneStructureChange,
         generateVoiceOver, onGenerateVoiceOverChange,
         addBackgroundMusic, onAddBackgroundMusicChange,
+        freepikApiKey, onFreepikApiKeyChange,
         onProductImageUpload, onModelImageUpload,
         onGenerate, apiKeySelected, onSelectKey, isLoading, error
     } = props;
-    
-    const canGenerate = productName && props.productImage && apiKeySelected && !isLoading;
+
+    const canGenerate = Boolean(productName && props.productImage && apiKeySelected && freepikApiKey && !isLoading);
 
     return (
         <aside className="w-full md:w-80 flex-shrink-0 bg-white border-l border-gray-200 flex flex-col">
@@ -77,6 +80,20 @@ const SettingsPanel: React.FC<SettingsPanelProps> = (props) => {
                         ))}
                     </select>
                 </div>
+
+                <div>
+                    <label htmlFor="freepik-api-key" className="text-sm font-semibold text-gray-600 mb-2 block">Freepik API Key</label>
+                    <input
+                        type="password"
+                        id="freepik-api-key"
+                        value={freepikApiKey}
+                        onChange={(e) => onFreepikApiKeyChange(e.target.value)}
+                        placeholder="Masukkan Freepik API Key"
+                        className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-md text-sm text-gray-900 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition disabled:opacity-50"
+                        disabled={isLoading}
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Gunakan API key dari <a className="text-purple-500 hover:underline" href="https://www.freepik.com/profile/api-keys" target="_blank" rel="noopener noreferrer">Freepik</a>.</p>
+                </div>
                 
                  <div>
                     <label htmlFor="additional-brief" className="text-sm font-semibold text-gray-600 mb-2 block">Brief Produk (Opsional)</label>
@@ -99,16 +116,12 @@ const SettingsPanel: React.FC<SettingsPanelProps> = (props) => {
 
             <footer className="p-4 border-t border-gray-200 bg-white">
                 <div className="text-xs text-gray-500 mb-4 text-center">
-                    Catatan: Pembuatan video memakan banyak sumber daya. Mohon pantau{' '}
-                    <a href="https://ai.dev/usage?tab=rate-limit" target="_blank" rel="noopener noreferrer" className="text-purple-500 hover:underline">
-                        dasbor kuota
-                    </a>{' '}
-                    Anda untuk menghindari gangguan.
+                    Pastikan Freepik API Key aktif dan kuota mencukupi sebelum membuat aset.
                 </div>
                 {!apiKeySelected ? (
                     <div className="flex flex-col items-center text-center">
-                        <p className="mb-2 text-sm text-red-500 font-medium">Pembuatan video memerlukan Kunci API.</p>
-                        <p className="mb-3 text-xs text-gray-500">Ini mungkin dikenakan biaya. Lihat 
+                        <p className="mb-2 text-sm text-red-500 font-medium">Fitur naskah & voice over memerlukan Google Gemini API Key.</p>
+                        <p className="mb-3 text-xs text-gray-500">Ini mungkin dikenakan biaya. Lihat
                             <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="text-purple-500 hover:underline"> dokumen penagihan</a>.
                         </p>
                         <button onClick={onSelectKey} className="w-full bg-purple-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-purple-700 transition-colors">

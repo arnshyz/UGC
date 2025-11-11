@@ -1,112 +1,228 @@
-import { GoogleGenAI, Part, Type, Modality, GenerateContentResponse } from "@google/genai";
+import { GoogleGenAI, Modality, Type } from "@google/genai";
 import { SceneStructure } from "../types";
 
-const fileToGenerativePart = async (file: File): Promise<Part> => {
+const FREEPIK_TEXT_TO_IMAGE_URL =
+  "https://api.freepik.com/v1/text-to-image/google/gemini-2.5-flash-image-preview";
+const FREEPIK_SEEDANCE_URL =
+  "https://api.freepik.com/v1/image-to-video/seedance-pro-1080p";
+
+const fileToGenerativePart = async (file: File): Promise<string> => {
   const base64EncodedDataPromise = new Promise<string>((resolve) => {
     const reader = new FileReader();
-    reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+    reader.onloadend = () => resolve(reader.result as string);
     reader.readAsDataURL(file);
   });
-  return {
-    inlineData: { data: await base64EncodedDataPromise, mimeType: file.type },
-  };
+  return base64EncodedDataPromise;
 };
+
+const extractBase64Data = (dataUrl?: string) => {
+  if (!dataUrl) return undefined;
+  const [, base64] = dataUrl.split(",");
+  return base64;
+};
+
+const ensureFreepikKey = (apiKey: string) => {
+  if (!apiKey) {
+    throw new Error("Freepik API key is required.");
+  }
+};
+
+const freepikHeaders = (apiKey: string) => ({
+  "Content-Type": "application/json",
+  "x-freepik-api-key": apiKey,
+});
 
 const getAiClient = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
 
+interface SceneImageConfig {
+  prompt: string;
+  requiresProduct: boolean;
+  requiresModel: boolean;
+}
+
 const getSceneImageConfigs = (
-    sceneStructure: SceneStructure, 
-    productName: string,
-    additionalBrief: string,
-    parts: { product?: Part, model?: Part }
-) => {
-    // A fixed background for consistency in the new design.
-    const background = "modern, clean studio background";
-    return sceneStructure.scenes.map(sceneConfig => {
-        const requiredParts = sceneConfig.requiredParts.map(partName => {
-            if (!parts[partName]) {
-                throw new Error(`Missing required image part: ${partName} for scene "${sceneConfig.title}"`);
-            }
-            return parts[partName]!;
-        });
-        return { 
-            prompt: sceneConfig.imagePrompt(background, productName, additionalBrief),
-            parts: requiredParts
-        };
-    });
+  sceneStructure: SceneStructure,
+  productName: string,
+  additionalBrief: string
+): SceneImageConfig[] => {
+  const background = "modern, clean studio background";
+  return sceneStructure.scenes.map((sceneConfig) => ({
+    prompt: sceneConfig.imagePrompt(background, productName, additionalBrief),
+    requiresProduct: sceneConfig.requiredParts.includes("product"),
+    requiresModel: sceneConfig.requiredParts.includes("model"),
+  }));
+};
+
+const extractImageFromPayload = (payload: any): string | null => {
+  if (!payload) return null;
+
+  const candidates = [
+    payload?.data?.[0]?.b64_json,
+    payload?.data?.[0]?.images?.[0]?.b64_json,
+    payload?.data?.[0]?.images?.[0]?.base64,
+    payload?.images?.[0]?.b64_json,
+    payload?.result?.[0]?.image_base64,
+  ];
+
+  return candidates.find((item) => typeof item === "string" && item.length > 0) || null;
 };
 
 export const generateUgcImages = async (
+  apiKey: string,
   sceneStructure: SceneStructure,
   productName: string,
   additionalBrief: string,
-  imageParts: { product: Part, model?: Part }
+  imageParts: { product: string; model?: string }
 ): Promise<string[]> => {
-    const ai = getAiClient();
-    const model = 'gemini-2.5-flash-image';
-    const sceneConfigs = getSceneImageConfigs(sceneStructure, productName, additionalBrief, imageParts);
+  ensureFreepikKey(apiKey);
+  const sceneConfigs = getSceneImageConfigs(
+    sceneStructure,
+    productName,
+    additionalBrief
+  );
 
-    const imagePromises = sceneConfigs.map(config => 
-        ai.models.generateContent({
-            model,
-            contents: { parts: [...config.parts, { text: config.prompt }] },
-            config: {
-                responseModalities: [Modality.IMAGE],
-            },
-        }).catch(err => {
-            console.error("Image generation failed for a scene:", err);
-            // Return a specific error object to handle in Promise.all
-            return { error: true, message: err.message, details: err.details };
-        })
-    );
+  const imagePromises = sceneConfigs.map(async (config, index) => {
+    const referenceImages: string[] = [];
 
-    const responses = await Promise.all(imagePromises);
+    if (config.requiresProduct) {
+      if (!imageParts.product) {
+        throw new Error("Product image is required for this scene.");
+      }
+      const productBase64 = extractBase64Data(imageParts.product);
+      if (!productBase64) {
+        throw new Error("Product image is invalid or missing.");
+      }
+      referenceImages.push(productBase64);
+    }
 
-    return responses.map((response, index) => {
-        // FIX: Use a type guard (`'error' in response`) to check for the custom error object.
-        // This resolves the TypeScript error because `response.error` is not a property of `GenerateContentResponse`.
-        if ('error' in response) {
-           throw new Error(`Image generation failed for scene ${index + 1}.`);
-        }
-        const imagePart = response.candidates?.[0]?.content?.parts.find(part => part.inlineData);
-        if (!imagePart?.inlineData) {
-            console.error("Image generation response was missing inlineData:", JSON.stringify(response, null, 2));
-            throw new Error(`Image generation failed for scene ${index + 1}.`);
-        }
-        return `data:${imagePart.inlineData.mimeType};base64,${imagePart.inlineData.data}`;
+    if (config.requiresModel) {
+      if (!imageParts.model) {
+        throw new Error("Model image is required for this scene.");
+      }
+      const modelBase64 = extractBase64Data(imageParts.model);
+      if (!modelBase64) {
+        throw new Error("Model image is invalid or missing.");
+      }
+      referenceImages.push(modelBase64);
+    }
+
+    const body: Record<string, any> = {
+      prompt: config.prompt,
+      aspect_ratio: "9:16",
+      guidance_scale: 7,
+      num_images: 1,
+      safety_filter: true,
+      negative_prompt: "text, watermark, logo, words",
+    };
+
+    if (referenceImages.length > 0) {
+      body.reference_images = referenceImages;
+    }
+
+    const response = await fetch(FREEPIK_TEXT_TO_IMAGE_URL, {
+      method: "POST",
+      headers: freepikHeaders(apiKey),
+      body: JSON.stringify(body),
     });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`Freepik image generation failed for scene ${index + 1}:`, errorText);
+      throw new Error("Gagal membuat gambar dengan Freepik API.");
+    }
+
+    const payload = await response.json();
+    const imageBase64 = extractImageFromPayload(payload);
+
+    if (!imageBase64) {
+      console.error("Unexpected Freepik response payload:", payload);
+      throw new Error(`Image generation failed for scene ${index + 1}.`);
+    }
+
+    return `data:image/png;base64,${imageBase64}`;
+  });
+
+  return Promise.all(imagePromises);
 };
 
 export const regenerateSingleImage = async (
-    sceneId: number,
-    sceneStructure: SceneStructure,
-    productName: string,
-    additionalBrief: string,
-    imageParts: { product: Part, model?: Part }
+  apiKey: string,
+  sceneId: number,
+  sceneStructure: SceneStructure,
+  productName: string,
+  additionalBrief: string,
+  imageParts: { product: string; model?: string }
 ): Promise<string> => {
-    const ai = getAiClient();
-    const model = 'gemini-2.5-flash-image';
-    const sceneConfigs = getSceneImageConfigs(sceneStructure, productName, additionalBrief, imageParts);
-    const config = sceneConfigs[sceneId - 1];
+  ensureFreepikKey(apiKey);
+  const sceneConfigs = getSceneImageConfigs(
+    sceneStructure,
+    productName,
+    additionalBrief
+  );
+  const config = sceneConfigs[sceneId - 1];
 
-    if (!config) {
-        throw new Error(`Invalid sceneId: ${sceneId}`);
+  if (!config) {
+    throw new Error(`Invalid sceneId: ${sceneId}`);
+  }
+
+  const referenceImages: string[] = [];
+
+  if (config.requiresProduct) {
+    if (!imageParts.product) {
+      throw new Error("Product image is required for this scene.");
     }
-
-    const response = await ai.models.generateContent({
-        model,
-        contents: { parts: [...config.parts, { text: config.prompt }] },
-        config: {
-            responseModalities: [Modality.IMAGE],
-        },
-    });
-
-    const imagePart = response.candidates?.[0]?.content?.parts.find(part => part.inlineData);
-    if (!imagePart?.inlineData) {
-        console.error("Image regeneration response was missing inlineData:", JSON.stringify(response, null, 2));
-        throw new Error('Image regeneration failed.');
+    const productBase64 = extractBase64Data(imageParts.product);
+    if (!productBase64) {
+      throw new Error("Product image is invalid or missing.");
     }
-    return `data:${imagePart.inlineData.mimeType};base64,${imagePart.inlineData.data}`;
+    referenceImages.push(productBase64);
+  }
+
+  if (config.requiresModel) {
+    if (!imageParts.model) {
+      throw new Error("Model image is required for this scene.");
+    }
+    const modelBase64 = extractBase64Data(imageParts.model);
+    if (!modelBase64) {
+      throw new Error("Model image is invalid or missing.");
+    }
+    referenceImages.push(modelBase64);
+  }
+
+  const body: Record<string, any> = {
+    prompt: config.prompt,
+    aspect_ratio: "9:16",
+    guidance_scale: 7,
+    num_images: 1,
+    safety_filter: true,
+    negative_prompt: "text, watermark, logo, words",
+  };
+
+  if (referenceImages.length > 0) {
+    body.reference_images = referenceImages;
+  }
+
+  const response = await fetch(FREEPIK_TEXT_TO_IMAGE_URL, {
+    method: "POST",
+    headers: freepikHeaders(apiKey),
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error(`Freepik image regeneration failed for scene ${sceneId}:`, errorText);
+    throw new Error("Gagal membuat ulang gambar dengan Freepik API.");
+  }
+
+  const payload = await response.json();
+  const imageBase64 = extractImageFromPayload(payload);
+
+  if (!imageBase64) {
+    console.error("Unexpected Freepik response payload:", payload);
+    throw new Error("Image regeneration failed.");
+  }
+
+  return `data:image/png;base64,${imageBase64}`;
 };
 
 export const generateScript = async (
@@ -141,95 +257,120 @@ export const generateScript = async (
 
 
 export const generateVoiceOver = async (fullScript: string): Promise<string> => {
-    const ai = getAiClient();
-    const model = 'gemini-2.5-flash-preview-tts';
+  const ai = getAiClient();
+  const model = "gemini-2.5-flash-preview-tts";
 
-    const response = await ai.models.generateContent({
-        model,
-        contents: [{ parts: [{ text: `Dengan nada yang ceria dan ramah, bacakan naskah berikut: ${fullScript}` }] }],
-        config: {
-            responseModalities: [Modality.AUDIO],
-            speechConfig: {
-                voiceConfig: {
-                    prebuiltVoiceConfig: { voiceName: 'Kore' }, // A friendly, consistent voice
-                },
-            },
+  const response = await ai.models.generateContent({
+    model,
+    contents: [{ parts: [{ text: `Dengan nada yang ceria dan ramah, bacakan naskah berikut: ${fullScript}` }] }],
+    config: {
+      responseModalities: [Modality.AUDIO],
+      speechConfig: {
+        voiceConfig: {
+          prebuiltVoiceConfig: { voiceName: "Kore" },
         },
-    });
+      },
+    },
+  });
 
-    const audioPart = response.candidates?.[0]?.content?.parts.find(p => p.inlineData);
-    if (!audioPart?.inlineData?.data) {
-        throw new Error('Voice over generation failed.');
-    }
-    return `data:audio/mpeg;base64,${audioPart.inlineData.data}`;
+  const audioPart = response.candidates?.[0]?.content?.parts.find((p) => p.inlineData);
+  if (!audioPart?.inlineData?.data) {
+    throw new Error("Voice over generation failed.");
+  }
+  return `data:audio/mpeg;base64,${audioPart.inlineData.data}`;
 };
 
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 export const generateVideoFromImage = async (
+  apiKey: string,
   imageBase64: string,
   animationPrompt: string,
   script: string,
   withBackgroundMusic: boolean
 ): Promise<string> => {
-    const ai = getAiClient();
-    const mimeType = imageBase64.split(';')[0].split(':')[1];
-    const imageData = imageBase64.split(',')[1];
-    
-    const baseInstructions = `IMPORTANT INSTRUCTIONS: Ensure the video fills the entire 9:16 aspect ratio frame without any black bars or letterboxing. The style should be simple and authentic, like a real user-generated content (UGC) video. Avoid overly cinematic transitions, dramatic zooms, or complex effects. ${withBackgroundMusic ? 'Add subtle, cinematic background music that fits the mood.' : 'Do not add any background music or sound effects.'}`;
+  ensureFreepikKey(apiKey);
 
-    const fullPrompt = `Based on the provided image, create a short video clip. The voice-over script for this specific scene is: "${script}". The desired animation is: "${animationPrompt}". ${baseInstructions}`;
+  const imageData = extractBase64Data(imageBase64);
+  if (!imageData) {
+    throw new Error("Invalid image data.");
+  }
 
-    if (!window.aistudio || !(await window.aistudio.hasSelectedApiKey())) {
-        await window.aistudio.openSelectKey();
-        if (!(await window.aistudio.hasSelectedApiKey())) {
-            throw new Error("API Key not selected. Please select an API key in the settings panel.");
-        }
+  const baseInstructions =
+    "IMPORTANT INSTRUCTIONS: Ensure the video fills the entire 9:16 aspect ratio frame without any black bars or letterboxing. " +
+    "Keep the motion natural, smooth, and focused on highlighting the product. Avoid cinematic transitions or heavy VFX." +
+    (withBackgroundMusic
+      ? " Add subtle, modern background music that complements the UGC style."
+      : " Do not add background music or sound effects.");
+
+  const fullPrompt = `Based on the provided image, create a short video clip. The voice-over script for this specific scene is: "${script}". The desired animation is: "${animationPrompt}". ${baseInstructions}`;
+
+  const createResponse = await fetch(FREEPIK_SEEDANCE_URL, {
+    method: "POST",
+    headers: freepikHeaders(apiKey),
+    body: JSON.stringify({
+      prompt: fullPrompt,
+      image_base64: imageData,
+      aspect_ratio: "9:16",
+      resolution: "1080p",
+      background_music: withBackgroundMusic ? "cinematic" : "none",
+    }),
+  });
+
+  if (!createResponse.ok) {
+    const errorText = await createResponse.text();
+    console.error("Seedance job creation failed:", errorText);
+    throw new Error("Gagal membuat video dengan Freepik Seedance API.");
+  }
+
+  const createPayload = await createResponse.json();
+  const taskId = createPayload?.data?.id || createPayload?.id || createPayload?.task_id;
+  if (!taskId) {
+    console.error("Unexpected Seedance create payload:", createPayload);
+    throw new Error("Video generation failed to start.");
+  }
+
+  const maxAttempts = 60; // ~5 minutes polling window
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    await wait(5000);
+
+    const statusResponse = await fetch(`${FREEPIK_SEEDANCE_URL}/${taskId}`, {
+      method: "GET",
+      headers: freepikHeaders(apiKey),
+    });
+
+    if (!statusResponse.ok) {
+      const errorText = await statusResponse.text();
+      console.error("Seedance status check failed:", errorText);
+      throw new Error("Gagal memeriksa status pembuatan video Freepik.");
     }
 
-    let operation;
-    try {
-        operation = await ai.models.generateVideos({
-            model: 'veo-3.1-fast-generate-preview',
-            prompt: fullPrompt,
-            image: {
-                imageBytes: imageData,
-                mimeType: mimeType,
-            },
-            config: {
-                numberOfVideos: 1,
-                resolution: '720p',
-                aspectRatio: '9:16'
-            }
-        });
-    } catch(e: any) {
-        if (e.message.includes("API key not valid")) {
-             throw new Error("API Key not valid. Please select a valid API key.");
-        }
-        throw e;
+    const statusPayload = await statusResponse.json();
+    const status =
+      statusPayload?.data?.status ||
+      statusPayload?.status ||
+      statusPayload?.data?.state ||
+      "";
+
+    if (["succeeded", "finished", "completed"].includes(status)) {
+      const videoUrl =
+        statusPayload?.data?.video_url ||
+        statusPayload?.data?.result?.video_url ||
+        statusPayload?.video_url;
+      if (!videoUrl) {
+        console.error("Seedance success payload missing video URL:", statusPayload);
+        throw new Error("Video generation succeeded but no URL was returned.");
+      }
+      return videoUrl;
     }
 
+    if (["failed", "error", "cancelled"].includes(status)) {
+      console.error("Seedance job failed:", statusPayload);
+      throw new Error("Video generation failed.");
+    }
+  }
 
-    while (!operation.done) {
-        await new Promise(resolve => setTimeout(resolve, 5000)); // Poll every 5 seconds
-        operation = await ai.operations.getVideosOperation({ operation: operation });
-    }
-    
-    const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
-    if (!downloadLink) {
-        throw new Error('Video generation failed or returned no link.');
-    }
-    
-    const videoResponse = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
-    if (!videoResponse.ok) {
-        const errorText = await videoResponse.text();
-        console.error("Video download failed:", errorText);
-        if (errorText.includes("Requested entity was not found.")) {
-            throw new Error("Requested entity was not found. Your API Key may be invalid.");
-        }
-        throw new Error(`Failed to download the generated video. Status: ${videoResponse.status}`);
-    }
-
-    const videoBlob = await videoResponse.blob();
-    return URL.createObjectURL(videoBlob);
+  throw new Error("Video generation timed out.");
 };
 
 export { fileToGenerativePart };
