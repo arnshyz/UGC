@@ -35,12 +35,5 @@ export const SCENE_STRUCTURES: SceneStructure[] = [
         requiredParts: ['product', 'model'],
       },
     ],
-    scriptPrompt: (productName, additionalBrief) => `Tulis naskah voice-over singkat dalam Bahasa Indonesia santai untuk mempromosikan "${productName}" dengan struktur empat adegan:
-      - Scene 1: Kenalkan keunggulan utama produk.
-      - Scene 2: Soroti detail atau material premium.
-      - Scene 3: Gambarkan manfaat ketika digunakan sehari-hari.
-      - Scene 4: Model mengajak penonton mencoba atau membeli.
-      Setiap scene maksimal 1-2 kalimat singkat (sekitar 8 detik jika dibacakan). ${additionalBrief ? `Instruksi tambahan: ${additionalBrief}` : ''}
-      Kembalikan dalam format JSON dengan kunci "scene1", "scene2", "scene3", "scene4".`,
   },
 ];

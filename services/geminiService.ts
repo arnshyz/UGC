@@ -1,4 +1,3 @@
-import { GoogleGenAI, Modality, Type } from "@google/genai";
 import { SceneStructure } from "../types";
 
 const FREEPIK_TEXT_TO_IMAGE_URL =
@@ -37,19 +36,6 @@ const freepikHeaders = (apiKey: string) => ({
   "Content-Type": "application/json",
   "x-freepik-api-key": apiKey,
 });
-
-const getAiClient = () => {
-  const apiKey =
-    process.env.GEMINI_API_KEY ||
-    process.env.API_KEY ||
-    import.meta.env.VITE_GEMINI_API_KEY;
-
-  if (!apiKey) {
-    throw new Error("Gemini API key is required.");
-  }
-
-  return new GoogleGenAI({ apiKey });
-};
 
 interface SceneImageConfig {
   prompt: string;
@@ -238,61 +224,6 @@ export const regenerateSingleImage = async (
   }
 
   return `data:image/png;base64,${imageBase64}`;
-};
-
-export const generateScript = async (
-  sceneStructure: SceneStructure,
-  productName: string,
-  additionalBrief: string,
-): Promise<Record<string, string>> => {
-  const ai = getAiClient();
-  const model = 'gemini-2.5-pro';
-  
-  const prompt = sceneStructure.scriptPrompt(productName, additionalBrief);
-
-  const response = await ai.models.generateContent({
-    model,
-    contents: prompt,
-    config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-                scene1: { type: Type.STRING },
-                scene2: { type: Type.STRING },
-                scene3: { type: Type.STRING },
-                scene4: { type: Type.STRING },
-            }
-        }
-    }
-  });
-
-  return JSON.parse(response.text);
-};
-
-
-export const generateVoiceOver = async (fullScript: string): Promise<string> => {
-  const ai = getAiClient();
-  const model = "gemini-2.5-flash-preview-tts";
-
-  const response = await ai.models.generateContent({
-    model,
-    contents: [{ parts: [{ text: `Dengan nada yang ceria dan ramah, bacakan naskah berikut: ${fullScript}` }] }],
-    config: {
-      responseModalities: [Modality.AUDIO],
-      speechConfig: {
-        voiceConfig: {
-          prebuiltVoiceConfig: { voiceName: "Kore" },
-        },
-      },
-    },
-  });
-
-  const audioPart = response.candidates?.[0]?.content?.parts.find((p) => p.inlineData);
-  if (!audioPart?.inlineData?.data) {
-    throw new Error("Voice over generation failed.");
-  }
-  return `data:audio/mpeg;base64,${audioPart.inlineData.data}`;
 };
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

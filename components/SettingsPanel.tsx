@@ -10,14 +10,12 @@ interface SettingsPanelProps {
     productName: string;
     additionalBrief: string;
     sceneStructureId: string;
-    generateVoiceOver: boolean;
     addBackgroundMusic: boolean;
     onProductImageUpload: (file: File) => void;
     onModelImageUpload: (file: File) => void;
     onProductNameChange: (name: string) => void;
     onAdditionalBriefChange: (brief: string) => void;
     onSceneStructureChange: (id: string) => void;
-    onGenerateVoiceOverChange: (enabled: boolean) => void;
     onAddBackgroundMusicChange: (enabled: boolean) => void;
     onGenerate: () => void;
     isLoading: boolean;
@@ -30,7 +28,6 @@ const SettingsPanel: React.FC<SettingsPanelProps> = (props) => {
         productName, onProductNameChange,
         additionalBrief, onAdditionalBriefChange,
         sceneStructureId, onSceneStructureChange,
-        generateVoiceOver, onGenerateVoiceOverChange,
         addBackgroundMusic, onAddBackgroundMusicChange,
         onProductImageUpload, onModelImageUpload,
         onGenerate, isLoading, error
@@ -91,7 +88,6 @@ const SettingsPanel: React.FC<SettingsPanelProps> = (props) => {
                 </div>
 
                 <div className="space-y-3 pt-4 border-t border-gray-200">
-                    <Switch label="Buat Voice Over" enabled={generateVoiceOver} onChange={onGenerateVoiceOverChange} disabled={isLoading} />
                     <Switch label="Tambah Musik Latar" enabled={addBackgroundMusic} onChange={onAddBackgroundMusicChange} disabled={isLoading} />
                 </div>
             </div>

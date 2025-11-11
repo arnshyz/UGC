@@ -30,5 +30,4 @@ export interface SceneStructure {
         videoPromptSuggestion: (productName: string, additionalBrief: string) => string;
         requiredParts: ('product' | 'model')[];
     }[];
-    scriptPrompt: (productName: string, additionalBrief: string) => string;
 }

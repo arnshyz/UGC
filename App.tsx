@@ -2,12 +2,10 @@ import React, { useState, useEffect } from 'react';
 import SceneCard from './components/SceneCard';
 import Spinner from './components/Spinner';
 import { SCENE_STRUCTURES } from './constants';
-import { Scene, GenerationStatus, SceneStructure } from './types';
+import { Scene, GenerationStatus } from './types';
 import * as geminiService from './services/geminiService';
-import DownloadIcon from './components/icons/DownloadIcon';
 import Sidebar from './components/Sidebar';
 import SettingsPanel from './components/SettingsPanel';
-import RegenerateIcon from './components/icons/RegenerateIcon';
 
 const App: React.FC = () => {
   const [productImage, setProductImage] = useState<File | null>(null);
@@ -15,15 +13,12 @@ const App: React.FC = () => {
   const [productName, setProductName] = useState('');
   const [additionalBrief, setAdditionalBrief] = useState('');
   const [sceneStructureId, setSceneStructureId] = useState(SCENE_STRUCTURES[0].id);
-  
-  const [generateVoiceOver, setGenerateVoiceOver] = useState(true);
+
   const [addBackgroundMusic, setAddBackgroundMusic] = useState(false);
 
   const [scenes, setScenes] = useState<Scene[]>([]);
-  const [voiceOverUrl, setVoiceOverUrl] = useState<string | null>(null);
-  
+
   const [isLoading, setIsLoading] = useState(false);
-  const [isRegeneratingVo, setIsRegeneratingVo] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -64,7 +59,6 @@ const App: React.FC = () => {
       videoPrompt: '', // Will be populated dynamically
     }));
     setScenes(initialScenes);
-    setVoiceOverUrl(null);
     setError(null);
     setIsLoading(false);
     setLoadingMessage('');
@@ -96,10 +90,6 @@ const App: React.FC = () => {
 
       const imageParts = { product: productPart, model: modelPart };
 
-      setLoadingMessage('Membuat naskah...');
-      const scriptData = await geminiService.generateScript(selectedStructure, productName, additionalBrief);
-      const fullScript = Object.values(scriptData).join(' ');
-
       setLoadingMessage('Membuat gambar...');
       const imageGenerationPromise = geminiService.generateUgcImages(
         selectedStructure,
@@ -108,27 +98,16 @@ const App: React.FC = () => {
         imageParts
       );
 
-      const voiceOverPromise = generateVoiceOver
-          ? geminiService.generateVoiceOver(fullScript).catch(e => {
-              console.warn("Voice over failed, continuing...", e);
-              return null; // Don't let a VO failure stop the process
-            })
-          : Promise.resolve(null);
-      
-      const [images, voUrl] = await Promise.all([
-        imageGenerationPromise,
-        voiceOverPromise,
-      ]);
-      
-      if (voUrl) setVoiceOverUrl(voUrl);
-      
-      const updatedScenes = scenes.map((scene, index) => ({
-        ...scene,
+      const images = await imageGenerationPromise;
+
+      const updatedScenes = selectedStructure.scenes.map((sceneConfig, index) => ({
+        id: index + 1,
+        title: sceneConfig.title,
+        description: sceneConfig.description,
         image: images[index],
-        script: scriptData[`scene${index + 1}`] || '',
+        script: scenes[index]?.script || '',
         status: GenerationStatus.IMAGE_READY,
-        // Generate dynamic video prompt suggestion
-        videoPrompt: selectedStructure.scenes[index].videoPromptSuggestion(productName, additionalBrief),
+        videoPrompt: sceneConfig.videoPromptSuggestion(productName, additionalBrief),
       }));
       setScenes(updatedScenes);
 
@@ -141,26 +120,6 @@ const App: React.FC = () => {
       setLoadingMessage('');
     }
   };
-  
-    const handleRegenerateVoiceOver = async () => {
-        if (!generateVoiceOver) return;
-        setIsRegeneratingVo(true);
-        setError(null);
-        try {
-            const fullScript = scenes.map(s => s.script).join(' ');
-            if (!fullScript.trim()) {
-                setError("Naskah tidak boleh kosong untuk membuat voice over.");
-                return;
-            }
-            const voUrl = await geminiService.generateVoiceOver(fullScript);
-            setVoiceOverUrl(voUrl);
-        } catch (e: any) {
-            console.error("Failed to regenerate voice over:", e);
-            setError(e.message || "Gagal membuat ulang voice over.");
-        } finally {
-            setIsRegeneratingVo(false);
-        }
-    };
 
 
   const handleRegenerateImage = async (sceneId: number) => {
@@ -223,25 +182,16 @@ const App: React.FC = () => {
       }
   };
   
-  const handleDownload = (url: string, filename: string) => {
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', filename);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-  
   const isAnySceneProcessing = scenes.some(s => s.status === GenerationStatus.GENERATING_IMAGE || s.status === GenerationStatus.GENERATING_VIDEO);
-  
+
   return (
     <div className="flex flex-col md:flex-row h-screen bg-gray-50 text-gray-800">
         <Sidebar isExpanded={isSidebarExpanded} onToggle={() => setIsSidebarExpanded(prev => !prev)} />
-        
-        {(isLoading || isRegeneratingVo) && (
+
+        {isLoading && (
           <div className="fixed inset-0 bg-white bg-opacity-70 flex flex-col items-center justify-center z-50 text-gray-900">
             <Spinner />
-            <p className="mt-4 text-lg font-semibold">{loadingMessage || 'Membuat ulang voice over...'}</p>
+            <p className="mt-4 text-lg font-semibold">{loadingMessage || 'Memproses...'}</p>
           </div>
         )}
 
@@ -255,47 +205,15 @@ const App: React.FC = () => {
             <div className="flex-1 p-4 md:p-8 space-y-6">
                 <h2 className="text-lg font-semibold">Generasi Saat Ini <span className="text-sm text-gray-500 font-normal">({scenes.filter(s => s.image).length}/4 gambar selesai)</span></h2>
                 
-                {voiceOverUrl && (
-                  <div className="p-4 bg-white border border-gray-200 rounded-xl">
-                    <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-                        <div className="flex-1">
-                            <h3 className="text-md font-semibold text-gray-900 mb-1 sm:mb-0">Master Voice Over</h3>
-                            <p className="text-xs text-gray-500">Satu track audio untuk seluruh video Anda.</p>
-                        </div>
-                        <div className="w-full sm:w-auto flex items-center gap-2">
-                            <audio controls src={voiceOverUrl} className="w-full max-w-xs h-10">
-                              Browser Anda tidak mendukung elemen audio.
-                            </audio>
-                             <button 
-                                onClick={handleRegenerateVoiceOver}
-                                disabled={isRegeneratingVo || isLoading || isAnySceneProcessing}
-                                className="p-2 bg-white border border-gray-300 text-gray-700 rounded-full hover:bg-gray-100 transition disabled:opacity-50"
-                                aria-label="Buat Ulang Voice Over"
-                            >
-                                <RegenerateIcon className="w-5 h-5" />
-                            </button>
-                            <button 
-                                onClick={() => handleDownload(voiceOverUrl, 'voice_over.mp3')}
-                                className="p-2 bg-purple-600 text-white rounded-full hover:bg-purple-700 transition"
-                                aria-label="Unduh Voice Over"
-                            >
-                                <DownloadIcon className="w-5 h-5" />
-                            </button>
-                        </div>
-                    </div>
-                  </div>
-                )}
-
                 <div className="grid grid-cols-1 gap-6">
                   {scenes.map(scene => (
-                    <SceneCard 
-                        key={scene.id} 
+                    <SceneCard
+                        key={scene.id}
                         scene={scene}
                         onRegenerateImage={handleRegenerateImage}
                         onGenerateVideo={handleGenerateVideo}
                         onVideoPromptChange={handleVideoPromptChange}
                         onScriptChange={handleScriptChange}
-                        isVoiceOverEnabled={generateVoiceOver}
                     />
                   ))}
                 </div>
@@ -309,14 +227,12 @@ const App: React.FC = () => {
             productName={productName}
             additionalBrief={additionalBrief}
             sceneStructureId={sceneStructureId}
-            generateVoiceOver={generateVoiceOver}
             addBackgroundMusic={addBackgroundMusic}
             onProductImageUpload={setProductImage}
             onModelImageUpload={setModelImage}
             onProductNameChange={setProductName}
             onAdditionalBriefChange={setAdditionalBrief}
             onSceneStructureChange={setSceneStructureId}
-            onGenerateVoiceOverChange={setGenerateVoiceOver}
             onAddBackgroundMusicChange={setAddBackgroundMusic}
             onGenerate={handleGenerateInitialAssets}
             isLoading={isLoading || isAnySceneProcessing}

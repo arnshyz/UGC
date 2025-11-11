@@ -18,7 +18,6 @@ View your app in AI Studio: https://ai.studio/apps/drive/15c3Pysqrd701fDnzbfCEWn
 2. Copy `.env.example` to `.env` (or create a new `.env` file) and set the following values:
 
    ```bash
-   VITE_GEMINI_API_KEY=<your_google_gemini_api_key>
    VITE_FREEPIK_API_KEY=<your_freepik_api_key>
    ```
 
