@@ -1,0 +1,5 @@
+{
+  "name": "UGC Video Generator",
+  "description": "An AI-powered application to generate a 4-scene UGC-style promotional video from product and model images, complete with an AI-generated script, voice-over, and animated video clips.",
+  "requestFramePermissions": []
+}
