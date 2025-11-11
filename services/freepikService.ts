@@ -21,12 +21,12 @@ const extractBase64Data = (dataUrl?: string) => {
 };
 
 const getFreepikApiKey = () => {
-  const apiKey =
-    process.env.FREEPIK_API_KEY ||
-    import.meta.env.VITE_FREEPIK_API_KEY;
+  const apiKey = import.meta.env.VITE_FREEPIK_API_KEY;
 
   if (!apiKey) {
-    throw new Error("Freepik API key is required.");
+    throw new Error(
+      "Freepik API key is required. Please set VITE_FREEPIK_API_KEY in your .env file."
+    );
   }
 
   return apiKey;

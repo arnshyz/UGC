@@ -3,7 +3,7 @@ import SceneCard from './components/SceneCard';
 import Spinner from './components/Spinner';
 import { SCENE_STRUCTURES } from './constants';
 import { Scene, GenerationStatus } from './types';
-import * as geminiService from './services/geminiService';
+import * as freepikService from './services/freepikService';
 import Sidebar from './components/Sidebar';
 import SettingsPanel from './components/SettingsPanel';
 
@@ -85,13 +85,13 @@ const App: React.FC = () => {
 
     try {
       setLoadingMessage('Menyiapkan aset...');
-      const productPart = await geminiService.fileToGenerativePart(productImage);
-      const modelPart = modelImage ? await geminiService.fileToGenerativePart(modelImage) : undefined;
+      const productPart = await freepikService.fileToGenerativePart(productImage);
+      const modelPart = modelImage ? await freepikService.fileToGenerativePart(modelImage) : undefined;
 
       const imageParts = { product: productPart, model: modelPart };
 
       setLoadingMessage('Membuat gambar...');
-      const imageGenerationPromise = geminiService.generateUgcImages(
+      const imageGenerationPromise = freepikService.generateUgcImages(
         selectedStructure,
         productName,
         additionalBrief,
@@ -136,11 +136,11 @@ const App: React.FC = () => {
     setScenes(prev => prev.map(s => s.id === sceneId ? { ...s, status: GenerationStatus.GENERATING_IMAGE, errorMessage: '' } : s));
     
     try {
-        const productPart = await geminiService.fileToGenerativePart(productImage);
-        const modelPart = modelImage ? await geminiService.fileToGenerativePart(modelImage) : undefined;
+        const productPart = await freepikService.fileToGenerativePart(productImage);
+        const modelPart = modelImage ? await freepikService.fileToGenerativePart(modelImage) : undefined;
         const imageParts = { product: productPart, model: modelPart };
 
-        const newImage = await geminiService.regenerateSingleImage(
+        const newImage = await freepikService.regenerateSingleImage(
           sceneId,
           selectedStructure,
           productName,
@@ -161,7 +161,7 @@ const App: React.FC = () => {
       setScenes(prev => prev.map(s => s.id === sceneId ? { ...s, status: GenerationStatus.GENERATING_VIDEO, errorMessage: '' } : s));
       
       try {
-          const videoUrl = await geminiService.generateVideoFromImage(
+          const videoUrl = await freepikService.generateVideoFromImage(
             scene.image,
             customPrompt,
             scene.script,
@@ -184,6 +184,9 @@ const App: React.FC = () => {
   
   const isAnySceneProcessing = scenes.some(s => s.status === GenerationStatus.GENERATING_IMAGE || s.status === GenerationStatus.GENERATING_VIDEO);
 
+  const totalScenes = scenes.length;
+  const completedImages = scenes.filter(s => s.image).length;
+
   return (
     <div className="flex flex-col md:flex-row h-screen bg-gray-50 text-gray-800">
         <Sidebar isExpanded={isSidebarExpanded} onToggle={() => setIsSidebarExpanded(prev => !prev)} />
@@ -203,7 +206,12 @@ const App: React.FC = () => {
             </header>
 
             <div className="flex-1 p-4 md:p-8 space-y-6">
-                <h2 className="text-lg font-semibold">Generasi Saat Ini <span className="text-sm text-gray-500 font-normal">({scenes.filter(s => s.image).length}/4 gambar selesai)</span></h2>
+                <h2 className="text-lg font-semibold">
+                  Generasi Saat Ini{' '}
+                  <span className="text-sm text-gray-500 font-normal">
+                    ({completedImages}/{totalScenes} gambar selesai)
+                  </span>
+                </h2>
                 
                 <div className="grid grid-cols-1 gap-6">
                   {scenes.map(scene => (
