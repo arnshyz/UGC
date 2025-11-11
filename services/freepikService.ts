@@ -1,9 +1,13 @@
-import { SceneStructure } from "../types";
+import { PromptStyle, SceneStructure } from "../types";
 
-const FREEPIK_TEXT_TO_IMAGE_URL =
-  "https://api.freepik.com/v1/text-to-image/google/gemini-2.5-flash-image-preview";
-const FREEPIK_SEEDANCE_URL =
-  "https://api.freepik.com/v1/image-to-video/seedance-pro-1080p";
+const API_BASE_URL =
+  import.meta.env.VITE_FREEPIK_API_BASE_URL ||
+  (import.meta.env.DEV ? "/api/freepik" : "https://api.freepik.com/v1");
+
+const FREEPIK_TEXT_TO_IMAGE_URL = `${API_BASE_URL}/text-to-image/google/gemini-2.5-flash-image-preview`;
+const FREEPIK_SEEDANCE_URL = `${API_BASE_URL}/image-to-video/seedance-pro-1080p`;
+
+const DEFAULT_NEGATIVE_PROMPT = "text, watermark, logo, words";
 
 const fileToGenerativePart = async (file: File): Promise<string> => {
   const base64EncodedDataPromise = new Promise<string>((resolve) => {
@@ -45,12 +49,12 @@ interface SceneImageConfig {
 
 const getSceneImageConfigs = (
   sceneStructure: SceneStructure,
+  promptStyle: PromptStyle,
   productName: string,
   additionalBrief: string
 ): SceneImageConfig[] => {
-  const background = "modern, clean studio background";
   return sceneStructure.scenes.map((sceneConfig) => ({
-    prompt: sceneConfig.imagePrompt(background, productName, additionalBrief),
+    prompt: sceneConfig.imagePrompt(promptStyle, productName, additionalBrief),
     requiresProduct: sceneConfig.requiredParts.includes("product"),
     requiresModel: sceneConfig.requiredParts.includes("model"),
   }));
@@ -72,6 +76,7 @@ const extractImageFromPayload = (payload: any): string | null => {
 
 export const generateUgcImages = async (
   sceneStructure: SceneStructure,
+  promptStyle: PromptStyle,
   productName: string,
   additionalBrief: string,
   imageParts: { product: string; model?: string }
@@ -79,6 +84,7 @@ export const generateUgcImages = async (
   const apiKey = getFreepikApiKey();
   const sceneConfigs = getSceneImageConfigs(
     sceneStructure,
+    promptStyle,
     productName,
     additionalBrief
   );
@@ -109,23 +115,39 @@ export const generateUgcImages = async (
     }
 
     const body: Record<string, any> = {
-      prompt: config.prompt,
+      prompt: config.prompt.trim(),
       aspect_ratio: "9:16",
       guidance_scale: 7,
       num_images: 1,
       safety_filter: true,
-      negative_prompt: "text, watermark, logo, words",
+      negative_prompt: [
+        DEFAULT_NEGATIVE_PROMPT,
+        promptStyle.negativePrompt || "",
+      ]
+        .filter(Boolean)
+        .join(", "),
     };
 
     if (referenceImages.length > 0) {
       body.reference_images = referenceImages;
     }
 
-    const response = await fetch(FREEPIK_TEXT_TO_IMAGE_URL, {
-      method: "POST",
-      headers: freepikHeaders(apiKey),
-      body: JSON.stringify(body),
-    });
+    let response: Response;
+    try {
+      response = await fetch(FREEPIK_TEXT_TO_IMAGE_URL, {
+        method: "POST",
+        headers: freepikHeaders(apiKey),
+        body: JSON.stringify(body),
+      });
+    } catch (networkError) {
+      console.error(
+        `Freepik image generation network error for scene ${index + 1}:`,
+        networkError
+      );
+      throw new Error(
+        "Tidak dapat terhubung ke Freepik API. Periksa koneksi internet atau konfigurasi proxy Anda."
+      );
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -150,6 +172,7 @@ export const generateUgcImages = async (
 export const regenerateSingleImage = async (
   sceneId: number,
   sceneStructure: SceneStructure,
+  promptStyle: PromptStyle,
   productName: string,
   additionalBrief: string,
   imageParts: { product: string; model?: string }
@@ -157,6 +180,7 @@ export const regenerateSingleImage = async (
   const apiKey = getFreepikApiKey();
   const sceneConfigs = getSceneImageConfigs(
     sceneStructure,
+    promptStyle,
     productName,
     additionalBrief
   );
@@ -191,23 +215,36 @@ export const regenerateSingleImage = async (
   }
 
   const body: Record<string, any> = {
-    prompt: config.prompt,
+    prompt: config.prompt.trim(),
     aspect_ratio: "9:16",
     guidance_scale: 7,
     num_images: 1,
     safety_filter: true,
-    negative_prompt: "text, watermark, logo, words",
+    negative_prompt: [DEFAULT_NEGATIVE_PROMPT, promptStyle.negativePrompt || ""]
+      .filter(Boolean)
+      .join(", "),
   };
 
   if (referenceImages.length > 0) {
     body.reference_images = referenceImages;
   }
 
-  const response = await fetch(FREEPIK_TEXT_TO_IMAGE_URL, {
-    method: "POST",
-    headers: freepikHeaders(apiKey),
-    body: JSON.stringify(body),
-  });
+  let response: Response;
+  try {
+    response = await fetch(FREEPIK_TEXT_TO_IMAGE_URL, {
+      method: "POST",
+      headers: freepikHeaders(apiKey),
+      body: JSON.stringify(body),
+    });
+  } catch (networkError) {
+    console.error(
+      `Freepik image regeneration network error for scene ${sceneId}:`,
+      networkError
+    );
+    throw new Error(
+      "Tidak dapat terhubung ke Freepik API. Periksa koneksi internet atau konfigurasi proxy Anda."
+    );
+  }
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -250,17 +287,25 @@ export const generateVideoFromImage = async (
 
   const fullPrompt = `Based on the provided image, create a short video clip. The voice-over script for this specific scene is: "${script}". The desired animation is: "${animationPrompt}". ${baseInstructions}`;
 
-  const createResponse = await fetch(FREEPIK_SEEDANCE_URL, {
-    method: "POST",
-    headers: freepikHeaders(apiKey),
-    body: JSON.stringify({
-      prompt: fullPrompt,
-      image_base64: imageData,
-      aspect_ratio: "9:16",
-      resolution: "1080p",
-      background_music: withBackgroundMusic ? "cinematic" : "none",
-    }),
-  });
+  let createResponse: Response;
+  try {
+    createResponse = await fetch(FREEPIK_SEEDANCE_URL, {
+      method: "POST",
+      headers: freepikHeaders(apiKey),
+      body: JSON.stringify({
+        prompt: fullPrompt,
+        image_base64: imageData,
+        aspect_ratio: "9:16",
+        resolution: "1080p",
+        background_music: withBackgroundMusic ? "cinematic" : "none",
+      }),
+    });
+  } catch (networkError) {
+    console.error("Seedance job creation network error:", networkError);
+    throw new Error(
+      "Tidak dapat menghubungi Freepik Seedance API. Periksa koneksi internet atau setelan firewall."
+    );
+  }
 
   if (!createResponse.ok) {
     const errorText = await createResponse.text();
@@ -279,10 +324,18 @@ export const generateVideoFromImage = async (
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     await wait(5000);
 
-    const statusResponse = await fetch(`${FREEPIK_SEEDANCE_URL}/${taskId}`, {
-      method: "GET",
-      headers: freepikHeaders(apiKey),
-    });
+    let statusResponse: Response;
+    try {
+      statusResponse = await fetch(`${FREEPIK_SEEDANCE_URL}/${taskId}`, {
+        method: "GET",
+        headers: freepikHeaders(apiKey),
+      });
+    } catch (networkError) {
+      console.error("Seedance status network error:", networkError);
+      throw new Error(
+        "Tidak dapat terhubung ke Freepik Seedance API saat memeriksa status."
+      );
+    }
 
     if (!statusResponse.ok) {
       const errorText = await statusResponse.text();

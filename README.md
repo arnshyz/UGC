@@ -21,5 +21,7 @@ View your app in AI Studio: https://ai.studio/apps/drive/15c3Pysqrd701fDnzbfCEWn
    VITE_FREEPIK_API_KEY=<your_freepik_api_key>
    ```
 
+   > **Tip:** When developing locally, the Vite dev server proxies `/api/freepik` to the official Freepik API so Anda tidak kena batasan CORS di browser.
+
 3. Run the app:
    `npm run dev`

@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import SceneCard from './components/SceneCard';
 import Spinner from './components/Spinner';
-import { SCENE_STRUCTURES } from './constants';
-import { Scene, GenerationStatus } from './types';
+import { PROMPT_STYLES, SCENE_STRUCTURES } from './constants';
+import { Scene, GenerationStatus, PromptStyle } from './types';
 import * as freepikService from './services/freepikService';
 import Sidebar from './components/Sidebar';
 import SettingsPanel from './components/SettingsPanel';
@@ -13,6 +13,7 @@ const App: React.FC = () => {
   const [productName, setProductName] = useState('');
   const [additionalBrief, setAdditionalBrief] = useState('');
   const [sceneStructureId, setSceneStructureId] = useState(SCENE_STRUCTURES[0].id);
+  const [promptStyleId, setPromptStyleId] = useState(PROMPT_STYLES[0].id);
 
   const [addBackgroundMusic, setAddBackgroundMusic] = useState(false);
 
@@ -25,19 +26,26 @@ const App: React.FC = () => {
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(window.innerWidth > 768);
 
   // Sync scenes state with selected structure
+  const getSelectedStructure = () =>
+    SCENE_STRUCTURES.find((structure) => structure.id === sceneStructureId) || SCENE_STRUCTURES[0];
+
+  const getSelectedPromptStyle = (): PromptStyle =>
+    PROMPT_STYLES.find((style) => style.id === promptStyleId) || PROMPT_STYLES[0];
+
   useEffect(() => {
-    const selectedStructure = SCENE_STRUCTURES.find(s => s.id === sceneStructureId) || SCENE_STRUCTURES[0];
+    const selectedStructure = getSelectedStructure();
+    const selectedPromptStyle = getSelectedPromptStyle();
     const newScenes = selectedStructure.scenes.map((sceneConfig, index) => ({
-        id: index + 1,
-        title: sceneConfig.title,
-        description: sceneConfig.description,
-        image: '',
-        script: '',
-        status: GenerationStatus.PENDING,
-        videoPrompt: '', // Will be populated dynamically
+      id: index + 1,
+      title: sceneConfig.title,
+      description: sceneConfig.description,
+      image: '',
+      script: '',
+      status: GenerationStatus.PENDING,
+      videoPrompt: sceneConfig.videoPromptSuggestion(productName, additionalBrief, selectedPromptStyle),
     }));
     setScenes(newScenes);
-  }, [sceneStructureId]);
+  }, [sceneStructureId, promptStyleId]);
 
   const handleVideoPromptChange = (sceneId: number, prompt: string) => {
     setScenes(prev => prev.map(s => s.id === sceneId ? { ...s, videoPrompt: prompt } : s));
@@ -48,7 +56,8 @@ const App: React.FC = () => {
   };
 
   const resetState = () => {
-    const selectedStructure = SCENE_STRUCTURES.find(s => s.id === sceneStructureId) || SCENE_STRUCTURES[0];
+    const selectedStructure = getSelectedStructure();
+    const selectedPromptStyle = getSelectedPromptStyle();
     const initialScenes = selectedStructure.scenes.map((sceneConfig, index) => ({
       id: index + 1,
       title: sceneConfig.title,
@@ -56,7 +65,7 @@ const App: React.FC = () => {
       image: '',
       script: '',
       status: GenerationStatus.PENDING,
-      videoPrompt: '', // Will be populated dynamically
+      videoPrompt: sceneConfig.videoPromptSuggestion(productName, additionalBrief, selectedPromptStyle),
     }));
     setScenes(initialScenes);
     setError(null);
@@ -66,7 +75,9 @@ const App: React.FC = () => {
 
   const handleGenerateInitialAssets = async () => {
     setError(null); // Clear previous errors
-    const selectedStructure = SCENE_STRUCTURES.find(s => s.id === sceneStructureId)!;
+    const selectedStructure = getSelectedStructure();
+    const selectedPromptStyle = getSelectedPromptStyle();
+    const previousScenes = scenes;
     
     // Validation for required model image
     const modelIsRequired = selectedStructure.scenes.some(scene => scene.requiredParts.includes('model'));
@@ -93,6 +104,7 @@ const App: React.FC = () => {
       setLoadingMessage('Membuat gambar...');
       const imageGenerationPromise = freepikService.generateUgcImages(
         selectedStructure,
+        selectedPromptStyle,
         productName,
         additionalBrief,
         imageParts
@@ -105,9 +117,13 @@ const App: React.FC = () => {
         title: sceneConfig.title,
         description: sceneConfig.description,
         image: images[index],
-        script: scenes[index]?.script || '',
+        script: previousScenes[index]?.script || '',
         status: GenerationStatus.IMAGE_READY,
-        videoPrompt: sceneConfig.videoPromptSuggestion(productName, additionalBrief),
+        videoPrompt: sceneConfig.videoPromptSuggestion(
+          productName,
+          additionalBrief,
+          selectedPromptStyle
+        ),
       }));
       setScenes(updatedScenes);
 
@@ -123,7 +139,8 @@ const App: React.FC = () => {
 
 
   const handleRegenerateImage = async (sceneId: number) => {
-    const selectedStructure = SCENE_STRUCTURES.find(s => s.id === sceneStructureId)!;
+    const selectedStructure = getSelectedStructure();
+    const selectedPromptStyle = getSelectedPromptStyle();
     const sceneConfig = selectedStructure.scenes[sceneId - 1];
 
     if (sceneConfig.requiredParts.includes('model') && !modelImage) {
@@ -143,6 +160,7 @@ const App: React.FC = () => {
         const newImage = await freepikService.regenerateSingleImage(
           sceneId,
           selectedStructure,
+          selectedPromptStyle,
           productName,
           additionalBrief,
           imageParts
@@ -236,11 +254,13 @@ const App: React.FC = () => {
             additionalBrief={additionalBrief}
             sceneStructureId={sceneStructureId}
             addBackgroundMusic={addBackgroundMusic}
+            promptStyleId={promptStyleId}
             onProductImageUpload={setProductImage}
             onModelImageUpload={setModelImage}
             onProductNameChange={setProductName}
             onAdditionalBriefChange={setAdditionalBrief}
             onSceneStructureChange={setSceneStructureId}
+            onPromptStyleChange={setPromptStyleId}
             onAddBackgroundMusicChange={setAddBackgroundMusic}
             onGenerate={handleGenerateInitialAssets}
             isLoading={isLoading || isAnySceneProcessing}

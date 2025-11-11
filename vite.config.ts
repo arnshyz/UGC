@@ -8,6 +8,14 @@ export default defineConfig(({ mode }) => {
       server: {
         port: 3000,
         host: '0.0.0.0',
+        proxy: {
+          '/api/freepik': {
+            target: 'https://api.freepik.com',
+            changeOrigin: true,
+            secure: true,
+            rewrite: (path) => path.replace(/^\/api\/freepik/, '/v1'),
+          },
+        },
       },
       plugins: [react()],
       define: {

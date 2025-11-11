@@ -1,8 +1,8 @@
 import React from 'react';
 import ImageUploader from './ImageUploader';
 import Switch from './Switch';
-import { SCENE_STRUCTURES } from '../constants';
-import { SceneStructure } from '../types';
+import { PROMPT_STYLES, SCENE_STRUCTURES } from '../constants';
+import { PromptStyle, SceneStructure } from '../types';
 
 interface SettingsPanelProps {
     productImage: File | null;
@@ -11,11 +11,13 @@ interface SettingsPanelProps {
     additionalBrief: string;
     sceneStructureId: string;
     addBackgroundMusic: boolean;
+    promptStyleId: string;
     onProductImageUpload: (file: File) => void;
     onModelImageUpload: (file: File) => void;
     onProductNameChange: (name: string) => void;
     onAdditionalBriefChange: (brief: string) => void;
     onSceneStructureChange: (id: string) => void;
+    onPromptStyleChange: (id: string) => void;
     onAddBackgroundMusicChange: (enabled: boolean) => void;
     onGenerate: () => void;
     isLoading: boolean;
@@ -28,6 +30,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = (props) => {
         productName, onProductNameChange,
         additionalBrief, onAdditionalBriefChange,
         sceneStructureId, onSceneStructureChange,
+        promptStyleId, onPromptStyleChange,
         addBackgroundMusic, onAddBackgroundMusicChange,
         onProductImageUpload, onModelImageUpload,
         onGenerate, isLoading, error
@@ -70,6 +73,23 @@ const SettingsPanel: React.FC<SettingsPanelProps> = (props) => {
                     >
                         {SCENE_STRUCTURES.map((structure: SceneStructure) => (
                             <option key={structure.id} value={structure.id}>{structure.name}</option>
+                        ))}
+                    </select>
+                </div>
+
+                <div>
+                    <label htmlFor="prompt-style" className="text-sm font-semibold text-gray-600 mb-2 block">Mood Visual</label>
+                    <select
+                        id="prompt-style"
+                        value={promptStyleId}
+                        onChange={(e) => onPromptStyleChange(e.target.value)}
+                        className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-md text-sm text-gray-900 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition disabled:opacity-50"
+                        disabled={isLoading}
+                    >
+                        {PROMPT_STYLES.map((style: PromptStyle) => (
+                            <option key={style.id} value={style.id}>
+                                {style.name} — {style.description}
+                            </option>
                         ))}
                     </select>
                 </div>
