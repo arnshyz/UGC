@@ -1,10 +1,89 @@
-import { GoogleGenAI, Modality, Type } from "@google/genai";
-import { SceneStructure } from "../types";
+import { PromptStyle, SceneStructure } from "../types";
 
-const FREEPIK_TEXT_TO_IMAGE_URL =
-  "https://api.freepik.com/v1/text-to-image/google/gemini-2.5-flash-image-preview";
-const FREEPIK_SEEDANCE_URL =
-  "https://api.freepik.com/v1/image-to-video/seedance-pro-1080p";
+const DIRECT_FREEPIK_API_BASE_URL = "https://api.freepik.com/v1";
+
+const sanitizeBaseUrl = (value: string) => value.replace(/\/+$/, "");
+
+const resolveInitialBaseUrl = () => {
+  const explicitBase = import.meta.env.VITE_FREEPIK_API_BASE_URL;
+  if (explicitBase) {
+    return sanitizeBaseUrl(explicitBase);
+  }
+
+  if (import.meta.env.DEV) {
+    return "/api/freepik";
+  }
+
+  return DIRECT_FREEPIK_API_BASE_URL;
+};
+
+let activeApiBaseUrl = resolveInitialBaseUrl();
+
+const getBaseUrlCandidates = () => {
+  const candidates = [activeApiBaseUrl];
+
+  if (!activeApiBaseUrl.startsWith("http")) {
+    candidates.push(DIRECT_FREEPIK_API_BASE_URL);
+  }
+
+  return [...new Set(candidates)].map((candidate) => sanitizeBaseUrl(candidate));
+};
+
+const joinUrl = (baseUrl: string, path: string) => {
+  const normalizedBase = sanitizeBaseUrl(baseUrl);
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${normalizedBase}${normalizedPath}`;
+};
+
+const performFreepikRequest = async (
+  path: string,
+  init: RequestInit,
+  context: string
+) => {
+  const candidates = getBaseUrlCandidates();
+  let lastNetworkError: unknown = null;
+
+  for (const base of candidates) {
+    const url = joinUrl(base, path);
+    try {
+      const response = await fetch(url, init);
+      if (base !== activeApiBaseUrl) {
+        console.info(
+          `[Freepik] Switching API base URL to "${base}" after successful fallback for ${context}.`
+        );
+        activeApiBaseUrl = base;
+      }
+      return response;
+    } catch (error: any) {
+      const isNetworkError =
+        error instanceof TypeError || error?.name === "TypeError";
+
+      if (!isNetworkError) {
+        throw error;
+      }
+
+      lastNetworkError = error;
+      console.warn(
+        `[Freepik] Network error when calling ${url} (${context}). Trying next base URL...`,
+        error
+      );
+    }
+  }
+
+  console.error(
+    `[Freepik] Exhausted all API base URL attempts for ${context}.`,
+    lastNetworkError
+  );
+  throw new Error(
+    "Tidak dapat terhubung ke Freepik API. Periksa koneksi internet atau konfigurasi proxy Anda."
+  );
+};
+
+const FREEPIK_TEXT_TO_IMAGE_PATH =
+  "/text-to-image/google/gemini-2.5-flash-image-preview";
+const FREEPIK_SEEDANCE_PATH = "/image-to-video/seedance-pro-1080p";
+
+const DEFAULT_NEGATIVE_PROMPT = "text, watermark, logo, words";
 
 const fileToGenerativePart = async (file: File): Promise<string> => {
   const base64EncodedDataPromise = new Promise<string>((resolve) => {
@@ -21,18 +100,22 @@ const extractBase64Data = (dataUrl?: string) => {
   return base64;
 };
 
-const ensureFreepikKey = (apiKey: string) => {
+const getFreepikApiKey = () => {
+  const apiKey = import.meta.env.VITE_FREEPIK_API_KEY;
+
   if (!apiKey) {
-    throw new Error("Freepik API key is required.");
+    throw new Error(
+      "Freepik API key is required. Please set VITE_FREEPIK_API_KEY in your .env file."
+    );
   }
+
+  return apiKey;
 };
 
 const freepikHeaders = (apiKey: string) => ({
   "Content-Type": "application/json",
   "x-freepik-api-key": apiKey,
 });
-
-const getAiClient = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 interface SceneImageConfig {
   prompt: string;
@@ -42,12 +125,12 @@ interface SceneImageConfig {
 
 const getSceneImageConfigs = (
   sceneStructure: SceneStructure,
+  promptStyle: PromptStyle,
   productName: string,
   additionalBrief: string
 ): SceneImageConfig[] => {
-  const background = "modern, clean studio background";
   return sceneStructure.scenes.map((sceneConfig) => ({
-    prompt: sceneConfig.imagePrompt(background, productName, additionalBrief),
+    prompt: sceneConfig.imagePrompt(promptStyle, productName, additionalBrief),
     requiresProduct: sceneConfig.requiredParts.includes("product"),
     requiresModel: sceneConfig.requiredParts.includes("model"),
   }));
@@ -68,15 +151,16 @@ const extractImageFromPayload = (payload: any): string | null => {
 };
 
 export const generateUgcImages = async (
-  apiKey: string,
   sceneStructure: SceneStructure,
+  promptStyle: PromptStyle,
   productName: string,
   additionalBrief: string,
   imageParts: { product: string; model?: string }
 ): Promise<string[]> => {
-  ensureFreepikKey(apiKey);
+  const apiKey = getFreepikApiKey();
   const sceneConfigs = getSceneImageConfigs(
     sceneStructure,
+    promptStyle,
     productName,
     additionalBrief
   );
@@ -107,23 +191,32 @@ export const generateUgcImages = async (
     }
 
     const body: Record<string, any> = {
-      prompt: config.prompt,
+      prompt: config.prompt.trim(),
       aspect_ratio: "9:16",
       guidance_scale: 7,
       num_images: 1,
       safety_filter: true,
-      negative_prompt: "text, watermark, logo, words",
+      negative_prompt: [
+        DEFAULT_NEGATIVE_PROMPT,
+        promptStyle.negativePrompt || "",
+      ]
+        .filter(Boolean)
+        .join(", "),
     };
 
     if (referenceImages.length > 0) {
       body.reference_images = referenceImages;
     }
 
-    const response = await fetch(FREEPIK_TEXT_TO_IMAGE_URL, {
-      method: "POST",
-      headers: freepikHeaders(apiKey),
-      body: JSON.stringify(body),
-    });
+    const response = await performFreepikRequest(
+      FREEPIK_TEXT_TO_IMAGE_PATH,
+      {
+        method: "POST",
+        headers: freepikHeaders(apiKey),
+        body: JSON.stringify(body),
+      },
+      `scene ${index + 1} image generation`
+    );
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -146,16 +239,17 @@ export const generateUgcImages = async (
 };
 
 export const regenerateSingleImage = async (
-  apiKey: string,
   sceneId: number,
   sceneStructure: SceneStructure,
+  promptStyle: PromptStyle,
   productName: string,
   additionalBrief: string,
   imageParts: { product: string; model?: string }
 ): Promise<string> => {
-  ensureFreepikKey(apiKey);
+  const apiKey = getFreepikApiKey();
   const sceneConfigs = getSceneImageConfigs(
     sceneStructure,
+    promptStyle,
     productName,
     additionalBrief
   );
@@ -190,23 +284,29 @@ export const regenerateSingleImage = async (
   }
 
   const body: Record<string, any> = {
-    prompt: config.prompt,
+    prompt: config.prompt.trim(),
     aspect_ratio: "9:16",
     guidance_scale: 7,
     num_images: 1,
     safety_filter: true,
-    negative_prompt: "text, watermark, logo, words",
+    negative_prompt: [DEFAULT_NEGATIVE_PROMPT, promptStyle.negativePrompt || ""]
+      .filter(Boolean)
+      .join(", "),
   };
 
   if (referenceImages.length > 0) {
     body.reference_images = referenceImages;
   }
 
-  const response = await fetch(FREEPIK_TEXT_TO_IMAGE_URL, {
-    method: "POST",
-    headers: freepikHeaders(apiKey),
-    body: JSON.stringify(body),
-  });
+  const response = await performFreepikRequest(
+    FREEPIK_TEXT_TO_IMAGE_PATH,
+    {
+      method: "POST",
+      headers: freepikHeaders(apiKey),
+      body: JSON.stringify(body),
+    },
+    `scene ${sceneId} image regeneration`
+  );
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -225,71 +325,15 @@ export const regenerateSingleImage = async (
   return `data:image/png;base64,${imageBase64}`;
 };
 
-export const generateScript = async (
-  sceneStructure: SceneStructure,
-  productName: string,
-  additionalBrief: string,
-): Promise<Record<string, string>> => {
-  const ai = getAiClient();
-  const model = 'gemini-2.5-pro';
-  
-  const prompt = sceneStructure.scriptPrompt(productName, additionalBrief);
-
-  const response = await ai.models.generateContent({
-    model,
-    contents: prompt,
-    config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-                scene1: { type: Type.STRING },
-                scene2: { type: Type.STRING },
-                scene3: { type: Type.STRING },
-                scene4: { type: Type.STRING },
-            }
-        }
-    }
-  });
-
-  return JSON.parse(response.text);
-};
-
-
-export const generateVoiceOver = async (fullScript: string): Promise<string> => {
-  const ai = getAiClient();
-  const model = "gemini-2.5-flash-preview-tts";
-
-  const response = await ai.models.generateContent({
-    model,
-    contents: [{ parts: [{ text: `Dengan nada yang ceria dan ramah, bacakan naskah berikut: ${fullScript}` }] }],
-    config: {
-      responseModalities: [Modality.AUDIO],
-      speechConfig: {
-        voiceConfig: {
-          prebuiltVoiceConfig: { voiceName: "Kore" },
-        },
-      },
-    },
-  });
-
-  const audioPart = response.candidates?.[0]?.content?.parts.find((p) => p.inlineData);
-  if (!audioPart?.inlineData?.data) {
-    throw new Error("Voice over generation failed.");
-  }
-  return `data:audio/mpeg;base64,${audioPart.inlineData.data}`;
-};
-
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export const generateVideoFromImage = async (
-  apiKey: string,
   imageBase64: string,
   animationPrompt: string,
   script: string,
   withBackgroundMusic: boolean
 ): Promise<string> => {
-  ensureFreepikKey(apiKey);
+  const apiKey = getFreepikApiKey();
 
   const imageData = extractBase64Data(imageBase64);
   if (!imageData) {
@@ -305,17 +349,21 @@ export const generateVideoFromImage = async (
 
   const fullPrompt = `Based on the provided image, create a short video clip. The voice-over script for this specific scene is: "${script}". The desired animation is: "${animationPrompt}". ${baseInstructions}`;
 
-  const createResponse = await fetch(FREEPIK_SEEDANCE_URL, {
-    method: "POST",
-    headers: freepikHeaders(apiKey),
-    body: JSON.stringify({
-      prompt: fullPrompt,
-      image_base64: imageData,
-      aspect_ratio: "9:16",
-      resolution: "1080p",
-      background_music: withBackgroundMusic ? "cinematic" : "none",
-    }),
-  });
+  const createResponse = await performFreepikRequest(
+    FREEPIK_SEEDANCE_PATH,
+    {
+      method: "POST",
+      headers: freepikHeaders(apiKey),
+      body: JSON.stringify({
+        prompt: fullPrompt,
+        image_base64: imageData,
+        aspect_ratio: "9:16",
+        resolution: "1080p",
+        background_music: withBackgroundMusic ? "cinematic" : "none",
+      }),
+    },
+    "Seedance job creation"
+  );
 
   if (!createResponse.ok) {
     const errorText = await createResponse.text();
@@ -334,10 +382,14 @@ export const generateVideoFromImage = async (
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     await wait(5000);
 
-    const statusResponse = await fetch(`${FREEPIK_SEEDANCE_URL}/${taskId}`, {
-      method: "GET",
-      headers: freepikHeaders(apiKey),
-    });
+    const statusResponse = await performFreepikRequest(
+      `${FREEPIK_SEEDANCE_PATH}/${taskId}`,
+      {
+        method: "GET",
+        headers: freepikHeaders(apiKey),
+      },
+      "Seedance status polling"
+    );
 
     if (!statusResponse.ok) {
       const errorText = await statusResponse.text();

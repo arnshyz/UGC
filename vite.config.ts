@@ -8,11 +8,18 @@ export default defineConfig(({ mode }) => {
       server: {
         port: 3000,
         host: '0.0.0.0',
+        proxy: {
+          '/api/freepik': {
+            target: 'https://api.freepik.com',
+            changeOrigin: true,
+            secure: true,
+            rewrite: (path) => path.replace(/^\/api\/freepik/, '/v1'),
+          },
+        },
       },
       plugins: [react()],
       define: {
-        'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
+        'process.env.FREEPIK_API_KEY': JSON.stringify(env.VITE_FREEPIK_API_KEY || env.FREEPIK_API_KEY || '')
       },
       resolve: {
         alias: {

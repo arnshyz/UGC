@@ -11,10 +11,9 @@ interface SceneCardProps {
   onGenerateVideo: (sceneId: number, customPrompt: string) => void;
   onVideoPromptChange: (sceneId: number, prompt: string) => void;
   onScriptChange: (sceneId: number, script: string) => void;
-  isVoiceOverEnabled: boolean;
 }
 
-const SceneCard: React.FC<SceneCardProps> = ({ scene, onRegenerateImage, onGenerateVideo, onVideoPromptChange, onScriptChange, isVoiceOverEnabled }) => {
+const SceneCard: React.FC<SceneCardProps> = ({ scene, onRegenerateImage, onGenerateVideo, onVideoPromptChange, onScriptChange }) => {
 
   const handleDownload = (url: string, filename: string) => {
     const link = document.createElement('a');
@@ -88,22 +87,20 @@ const SceneCard: React.FC<SceneCardProps> = ({ scene, onRegenerateImage, onGener
                 </button>
             </div>
             
-            {isVoiceOverEnabled && (
-                <div className="mb-4">
-                    <label htmlFor={`script-${scene.id}`} className="text-sm font-semibold text-gray-600 mb-1 block">
-                      Naskah Voice Over
-                    </label>
-                    <textarea 
-                        id={`script-${scene.id}`}
-                        rows={4}
-                        value={scene.script}
-                        onChange={(e) => onScriptChange(scene.id, e.target.value)}
-                        placeholder="Tulis naskah untuk adegan ini..."
-                        className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-md text-sm text-gray-900 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition disabled:opacity-50"
-                        disabled={isActionInProgress}
-                    />
-                </div>
-            )}
+            <div className="mb-4">
+                <label htmlFor={`script-${scene.id}`} className="text-sm font-semibold text-gray-600 mb-1 block">
+                  Naskah atau Catatan Adegan (Opsional)
+                </label>
+                <textarea
+                    id={`script-${scene.id}`}
+                    rows={4}
+                    value={scene.script}
+                    onChange={(e) => onScriptChange(scene.id, e.target.value)}
+                    placeholder="Tulis naskah atau poin utama untuk adegan ini..."
+                    className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-md text-sm text-gray-900 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition disabled:opacity-50"
+                    disabled={isActionInProgress}
+                />
+            </div>
 
             <div>
                 <label htmlFor={`video-prompt-${scene.id}`} className="text-sm font-semibold text-gray-600 mb-1 block">

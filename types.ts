@@ -19,6 +19,17 @@ export interface Scene {
   videoPrompt: string;
 }
 
+export interface PromptStyle {
+  id: string;
+  name: string;
+  description: string;
+  background: string;
+  visualTone: string;
+  videoMood: string;
+  promptSuffix?: string;
+  negativePrompt?: string;
+}
+
 export interface SceneStructure {
     id: string;
     name: string;
@@ -26,9 +37,16 @@ export interface SceneStructure {
     scenes: {
         title: string;
         description: string;
-        imagePrompt: (background: string, productName: string, additionalBrief: string) => string;
-        videoPromptSuggestion: (productName: string, additionalBrief: string) => string;
+        imagePrompt: (
+          promptStyle: PromptStyle,
+          productName: string,
+          additionalBrief: string
+        ) => string;
+        videoPromptSuggestion: (
+          productName: string,
+          additionalBrief: string,
+          promptStyle: PromptStyle
+        ) => string;
         requiredParts: ('product' | 'model')[];
     }[];
-    scriptPrompt: (productName: string, additionalBrief: string) => string;
 }
