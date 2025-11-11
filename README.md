@@ -19,9 +19,11 @@ View your app in AI Studio: https://ai.studio/apps/drive/15c3Pysqrd701fDnzbfCEWn
 
    ```bash
    VITE_FREEPIK_API_KEY=<your_freepik_api_key>
+   # Optional: point to a custom proxy if Freepik blocks browser requests
+   # VITE_FREEPIK_API_BASE_URL=https://your-proxy.example.com/v1
    ```
 
-   > **Tip:** When developing locally, the Vite dev server proxies `/api/freepik` to the official Freepik API so Anda tidak kena batasan CORS di browser.
+   > **Tip:** When developing locally, the Vite dev server proxies `/api/freepik` to the official Freepik API so Anda tidak kena batasan CORS di browser. Kalau proxy lokal tersebut gagal dijangkau, aplikasi kini otomatis mencoba langsung ke `https://api.freepik.com/v1` sehingga proses generate tetap bisa berjalan.
 
 3. Run the app:
    `npm run dev`

@@ -1,11 +1,87 @@
 import { PromptStyle, SceneStructure } from "../types";
 
-const API_BASE_URL =
-  import.meta.env.VITE_FREEPIK_API_BASE_URL ||
-  (import.meta.env.DEV ? "/api/freepik" : "https://api.freepik.com/v1");
+const DIRECT_FREEPIK_API_BASE_URL = "https://api.freepik.com/v1";
 
-const FREEPIK_TEXT_TO_IMAGE_URL = `${API_BASE_URL}/text-to-image/google/gemini-2.5-flash-image-preview`;
-const FREEPIK_SEEDANCE_URL = `${API_BASE_URL}/image-to-video/seedance-pro-1080p`;
+const sanitizeBaseUrl = (value: string) => value.replace(/\/+$/, "");
+
+const resolveInitialBaseUrl = () => {
+  const explicitBase = import.meta.env.VITE_FREEPIK_API_BASE_URL;
+  if (explicitBase) {
+    return sanitizeBaseUrl(explicitBase);
+  }
+
+  if (import.meta.env.DEV) {
+    return "/api/freepik";
+  }
+
+  return DIRECT_FREEPIK_API_BASE_URL;
+};
+
+let activeApiBaseUrl = resolveInitialBaseUrl();
+
+const getBaseUrlCandidates = () => {
+  const candidates = [activeApiBaseUrl];
+
+  if (!activeApiBaseUrl.startsWith("http")) {
+    candidates.push(DIRECT_FREEPIK_API_BASE_URL);
+  }
+
+  return [...new Set(candidates)].map((candidate) => sanitizeBaseUrl(candidate));
+};
+
+const joinUrl = (baseUrl: string, path: string) => {
+  const normalizedBase = sanitizeBaseUrl(baseUrl);
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${normalizedBase}${normalizedPath}`;
+};
+
+const performFreepikRequest = async (
+  path: string,
+  init: RequestInit,
+  context: string
+) => {
+  const candidates = getBaseUrlCandidates();
+  let lastNetworkError: unknown = null;
+
+  for (const base of candidates) {
+    const url = joinUrl(base, path);
+    try {
+      const response = await fetch(url, init);
+      if (base !== activeApiBaseUrl) {
+        console.info(
+          `[Freepik] Switching API base URL to "${base}" after successful fallback for ${context}.`
+        );
+        activeApiBaseUrl = base;
+      }
+      return response;
+    } catch (error: any) {
+      const isNetworkError =
+        error instanceof TypeError || error?.name === "TypeError";
+
+      if (!isNetworkError) {
+        throw error;
+      }
+
+      lastNetworkError = error;
+      console.warn(
+        `[Freepik] Network error when calling ${url} (${context}). Trying next base URL...`,
+        error
+      );
+    }
+  }
+
+  console.error(
+    `[Freepik] Exhausted all API base URL attempts for ${context}.`,
+    lastNetworkError
+  );
+  throw new Error(
+    "Tidak dapat terhubung ke Freepik API. Periksa koneksi internet atau konfigurasi proxy Anda."
+  );
+};
+
+const FREEPIK_TEXT_TO_IMAGE_PATH =
+  "/text-to-image/google/gemini-2.5-flash-image-preview";
+const FREEPIK_SEEDANCE_PATH = "/image-to-video/seedance-pro-1080p";
 
 const DEFAULT_NEGATIVE_PROMPT = "text, watermark, logo, words";
 
@@ -132,22 +208,15 @@ export const generateUgcImages = async (
       body.reference_images = referenceImages;
     }
 
-    let response: Response;
-    try {
-      response = await fetch(FREEPIK_TEXT_TO_IMAGE_URL, {
+    const response = await performFreepikRequest(
+      FREEPIK_TEXT_TO_IMAGE_PATH,
+      {
         method: "POST",
         headers: freepikHeaders(apiKey),
         body: JSON.stringify(body),
-      });
-    } catch (networkError) {
-      console.error(
-        `Freepik image generation network error for scene ${index + 1}:`,
-        networkError
-      );
-      throw new Error(
-        "Tidak dapat terhubung ke Freepik API. Periksa koneksi internet atau konfigurasi proxy Anda."
-      );
-    }
+      },
+      `scene ${index + 1} image generation`
+    );
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -229,22 +298,15 @@ export const regenerateSingleImage = async (
     body.reference_images = referenceImages;
   }
 
-  let response: Response;
-  try {
-    response = await fetch(FREEPIK_TEXT_TO_IMAGE_URL, {
+  const response = await performFreepikRequest(
+    FREEPIK_TEXT_TO_IMAGE_PATH,
+    {
       method: "POST",
       headers: freepikHeaders(apiKey),
       body: JSON.stringify(body),
-    });
-  } catch (networkError) {
-    console.error(
-      `Freepik image regeneration network error for scene ${sceneId}:`,
-      networkError
-    );
-    throw new Error(
-      "Tidak dapat terhubung ke Freepik API. Periksa koneksi internet atau konfigurasi proxy Anda."
-    );
-  }
+    },
+    `scene ${sceneId} image regeneration`
+  );
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -287,9 +349,9 @@ export const generateVideoFromImage = async (
 
   const fullPrompt = `Based on the provided image, create a short video clip. The voice-over script for this specific scene is: "${script}". The desired animation is: "${animationPrompt}". ${baseInstructions}`;
 
-  let createResponse: Response;
-  try {
-    createResponse = await fetch(FREEPIK_SEEDANCE_URL, {
+  const createResponse = await performFreepikRequest(
+    FREEPIK_SEEDANCE_PATH,
+    {
       method: "POST",
       headers: freepikHeaders(apiKey),
       body: JSON.stringify({
@@ -299,13 +361,9 @@ export const generateVideoFromImage = async (
         resolution: "1080p",
         background_music: withBackgroundMusic ? "cinematic" : "none",
       }),
-    });
-  } catch (networkError) {
-    console.error("Seedance job creation network error:", networkError);
-    throw new Error(
-      "Tidak dapat menghubungi Freepik Seedance API. Periksa koneksi internet atau setelan firewall."
-    );
-  }
+    },
+    "Seedance job creation"
+  );
 
   if (!createResponse.ok) {
     const errorText = await createResponse.text();
@@ -324,18 +382,14 @@ export const generateVideoFromImage = async (
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     await wait(5000);
 
-    let statusResponse: Response;
-    try {
-      statusResponse = await fetch(`${FREEPIK_SEEDANCE_URL}/${taskId}`, {
+    const statusResponse = await performFreepikRequest(
+      `${FREEPIK_SEEDANCE_PATH}/${taskId}`,
+      {
         method: "GET",
         headers: freepikHeaders(apiKey),
-      });
-    } catch (networkError) {
-      console.error("Seedance status network error:", networkError);
-      throw new Error(
-        "Tidak dapat terhubung ke Freepik Seedance API saat memeriksa status."
-      );
-    }
+      },
+      "Seedance status polling"
+    );
 
     if (!statusResponse.ok) {
       const errorText = await statusResponse.text();
